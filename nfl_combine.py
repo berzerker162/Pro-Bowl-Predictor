@@ -1,11 +1,19 @@
 #The goal of this project is to create a model that predicts the probability an NFL player will reach the Pro Bowl
 #based on the player's performance in the NFL combine
 #Data Source:http://nflcombineresults.com/nflcombinedata_expanded.php?year=2001&pos=&college=
+#ML reference:
+# 1) https://towardsdatascience.com/building-a-logistic-regression-in-python-step-by-step-becd4d56c9c8
 
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn import preprocessing
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+
+
+
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', 100)
 
@@ -16,7 +24,13 @@ pro_bowl = pd.read_csv('data/probowlers.csv')
 
 #clean the data
 combine.rename(columns=lambda x: x.strip(), inplace=True) #remove whitespace
-combine.dropna(how='all', axis='columns',inplace=True) #remove empty columns
+combine.columns = combine.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('(', '').str.replace(')', '') #remove empty columns
+combine.dropna(how='all', axis='columns',inplace=True) #remove extraneous empty columns
+combine.columns = combine.columns.str.replace(u'\xa0', ' ')#remove non-breaking space
+combine.drop(columns=['wonderlic'],inplace=True) #remove wonderlic as there is litle data
+
+
+#add code to remove NBSP for clarity
 
 pro_bowl['Player'] = pro_bowl['Player'].str.replace('[%,+]','')
 pro_bowl.rename(columns=lambda x: x.strip(), inplace=True) #remove whitespace
@@ -26,50 +40,177 @@ pro_bowl.dropna(how='all', axis='columns',inplace=True) #remove empty columns
 pro_bowl_players = pro_bowl['Player'].drop_duplicates()
 
 #join combine data with pro bowl data
-full = combine.merge(pro_bowl_players,how='left',left_on='Name',right_on='Player')
+full = combine.merge(pro_bowl_players,how='left',left_on='name',right_on='Player')
 
 #mark all probowlers
-full['Is Pro Bowl'] = full['Player'].apply(lambda x: 0 if x!=x else 1)
+full['is_pro_bowl'] = full['Player'].apply(lambda x: 0 if x!=x else 1)
 
-
-#=================EXPLORE DATA================
+#=================EXPLORE================
 #QUESTION: Can one predict pro bowl liklihood from NFL combine performance?
 #Start with corner back, most influenced by raw athleticism
 
 #let's look at CB's only
-cornerbacks = full[full['POS']=='CB']
+cornerbacks = full[full['pos']=='CB']
 
-#visualize the data
-
-#height
-plt.style.use('seaborn-deep')
-cb_pro = cornerbacks[cornerbacks['Is Pro Bowl'] == 1]['Height (in)'] #np.random.normal(1, 2, 5000)
-cb_non_pro = cornerbacks[cornerbacks['Is Pro Bowl'] == 0]['Height (in)']  #np.random.normal(-1, 3, 2000)
-bins = np.linspace(60, 80, 20)
+#look at count of probowlers versus non-PBs
+sns.countplot(x='is_pro_bowl',data=cornerbacks) #,palette='hls')
+plt.show()
+plt.savefig('count_plot.png')
 
 
-#plot 40 yard dash times for CBs
-plt.figure(figsize=(14, 8))
-sns.catplot(x="Is Pro Bowl", y="40 Yard", kind="violin", data=cornerbacks, height=8.5, aspect=.9)
+#find percentages of probowl cornerbacks
+count_no_pb = len(cornerbacks[cornerbacks['is_pro_bowl']==0])
+count_pb = len(cornerbacks[cornerbacks['is_pro_bowl']==1])
+pct_of_no_pb = count_no_pb/(count_no_pb + count_pb)
+print("percentage of not pro bowlers: ", pct_of_no_pb*100)
+pct_of_pb = count_pb/(count_no_pb+count_pb)
+print("percentage of pro bowlers: ", pct_of_pb*100)
 
-#================Split Data into Test and Train sets======================
-
-
-#================Select Features===================
-
-
-
-#================fit logistic regression===================
-#split data into training set and test set
+#classes are imbalanced 95:5 or 19:1
 
 
-
-#================evaluat on test data===================
-#split data into training set and test set
-
-
-#==========iterate model as needed======================
+#lets see the means across columns for the two groups
+cornerbacks.groupby('is_pro_bowl').mean()
 
 
-#==========deploy======================
+#lets see how the data stack up based on the colleges
+cornerbacks.groupby('college').mean()
 
+
+#=================VISUALIZE================
+
+#what is it like by college?
+#reduce schools in future
+pd.crosstab(cornerbacks.college,cornerbacks.is_pro_bowl).plot(kind='bar')
+plt.title('Purchase Frequency for Job Title')
+plt.xlabel('College')
+plt.ylabel('Freq. of Pro Bowlers')
+plt.savefig('college_fre_job.png')
+
+#data to plot
+
+plots = ['college', 'height in', 'weight lbs', 'hand_size in',
+         'arm_length in', '40 yard', 'bench_press','vert_leap in',
+         'broad_jump in', 'shuttle', '3cone', '60yd_shuttle']
+#plot all the columns
+for plot in plots:
+       sns.catplot(x="is_pro_bowl", y = plot, kind="violin", data=cornerbacks, height=8.5, aspect=.9)
+       plt.savefig(plot + '.png')
+
+#=========================================
+#==============ML approach 1==============
+#=========================================
+
+#drop categorical columns
+cornerbacks = cornerbacks[['height in', 'weight lbs', 'hand_size in',
+         'arm_length in', '40 yard', 'bench_press','vert_leap in',
+         'broad_jump in', 'shuttle', '3cone', '60yd_shuttle','is_pro_bowl']]
+
+#====impute NaN values with mean for use in model===============
+cornerbacks = cornerbacks.fillna(cornerbacks.mean())
+
+
+#==========OVER SAMPLING USING SMOTE=================
+X = cornerbacks.loc[:, cornerbacks.columns != 'is_pro_bowl']
+y = cornerbacks.loc[:, cornerbacks.columns == 'is_pro_bowl']
+
+from imblearn.over_sampling import SMOTE
+
+os = SMOTE(random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+columns = X_train.columns
+
+os_data_X, os_data_y = os.fit_sample(X_train, y_train) #oversample training data
+os_data_X = pd.DataFrame(data=os_data_X,columns=columns)
+os_data_y= pd.DataFrame(data=os_data_y,columns=['is_pro_bowl'])
+
+# we can Check the numbers of our data
+print("length of oversampled data is ",len(os_data_X))
+print("Number of non-Pro Bowlers in oversampled data",len(os_data_y[os_data_y['is_pro_bowl']==0]))
+print("Number of Pro Bowlers",len(os_data_y[os_data_y['is_pro_bowl']==1]))
+print("Proportion of non-Pro Bowler data in oversampled data is ",len(os_data_y[os_data_y['is_pro_bowl']==0])/len(os_data_X))
+print("Proportion of Pro Bowler data in oversampled data is ",len(os_data_y[os_data_y['is_pro_bowl']==1])/len(os_data_X))
+
+
+#==========RECURSIVE FEATURE ELIMINATION=============
+data_final_vars = cornerbacks.columns.values.tolist()
+y=['is_pro_bowl']
+X=[i for i in data_final_vars if i not in y]
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression()
+rfe = RFE(logreg, 20)
+rfe = rfe.fit(os_data_X, os_data_y.values.ravel())
+print(rfe.support_)
+print(rfe.ranking_)
+
+#use all columns based on RFE results
+cols=['height in', 'weight lbs', 'hand_size in', 'arm_length in', '40 yard',
+       'bench_press', 'vert_leap in', 'broad_jump in', 'shuttle', '3cone',
+       '60yd_shuttle']
+X=os_data_X[cols]
+y=os_data_y['is_pro_bowl']
+
+#===========IMPLEMENT MODEL==========================
+import statsmodels.api as sm
+logit_model=sm.Logit(y,X)
+result=logit_model.fit()
+print(result.summary2())
+
+#find feature significance
+X=os_data_X[cols]
+y=os_data_y['is_pro_bowl']
+logit_model=sm.Logit(y,X)
+result=logit_model.fit()
+print(result.summary2())
+
+#p-value is <0.05 except for bench press and 3cone so remove them
+
+cols=['height in', 'weight lbs', 'hand_size in', 'arm_length in', '40 yard',
+      'vert_leap in', 'broad_jump in', 'shuttle',
+       '60yd_shuttle']
+
+
+#==========LOGISTIC REGRESSION MODEL FIT=============
+from sklearn.linear_model import LogisticRegression
+from sklearn import metrics
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+logreg = LogisticRegression(C=1.0, class_weight=None, dual=False,
+                            fit_intercept=True, intercept_scaling=1,
+                            max_iter=100, multi_class='ovr',n_jobs=1,
+                            penalty='l2',random_state=None, solver='liblinear',
+                            tol=0.0001,verbose=0,warm_start=False)
+logreg.fit(X_train, y_train)
+
+#predicting test set results and calculating accuracy
+y_pred = logreg.predict(X_test)
+print('Accuracy of logistic regression classifier on test set: {:.2f}'
+      .format(logreg.score(X_test, y_test)))
+
+#==========CONFUSION MATRIX==========================
+from sklearn.metrics import confusion_matrix
+confusion_matrix = confusion_matrix(y_test, y_pred)
+print(confusion_matrix)
+
+#==========PRECISION, RECALL, F-MEASURE, SUPPORT=====
+from sklearn.metrics import classification_report
+print(classification_report(y_test, y_pred))
+
+
+#==========ROC CURVE=================================
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
+logit_roc_auc = roc_auc_score(y_test, logreg.predict(X_test))
+fpr, tpr, thresholds = roc_curve(y_test, logreg.predict_proba(X_test)[:,1])
+plt.figure()
+plt.plot(fpr, tpr, label='Logistic Regression (area = %0.2f)' % logit_roc_auc)
+plt.plot([0, 1], [0, 1],'r--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver operating characteristic')
+plt.legend(loc="lower right")
+plt.savefig('Log_ROC')
+plt.show()
