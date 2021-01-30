@@ -117,7 +117,7 @@ y = cornerbacks.loc[:, cornerbacks.columns == 'is_pro_bowl']
 from imblearn.over_sampling import SMOTE
 
 os = SMOTE(random_state=0)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+X_train, X_test_org, y_train, y_test_org = train_test_split(X, y, test_size=0.3, random_state=0)
 columns = X_train.columns
 
 os_data_X, os_data_y = os.fit_sample(X_train, y_train) #oversample training data
@@ -184,25 +184,25 @@ logreg = LogisticRegression(C=1.0, class_weight=None, dual=False,
 logreg.fit(X_train, y_train)
 
 #predicting test set results and calculating accuracy
-y_pred = logreg.predict(X_test)
+y_pred = logreg.predict(X_test_org)
 print('Accuracy of logistic regression classifier on test set: {:.2f}'
-      .format(logreg.score(X_test, y_test)))
+      .format(logreg.score(X_test_org, y_test_org)))
 
 #==========CONFUSION MATRIX==========================
 from sklearn.metrics import confusion_matrix
-confusion_matrix = confusion_matrix(y_test, y_pred)
+confusion_matrix = confusion_matrix(y_test_org, y_pred)
 print(confusion_matrix)
 
 #==========PRECISION, RECALL, F-MEASURE, SUPPORT=====
 from sklearn.metrics import classification_report
-print(classification_report(y_test, y_pred))
+print(classification_report(y_test_org, y_pred))
 
 
 #==========ROC CURVE=================================
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
-logit_roc_auc = roc_auc_score(y_test, logreg.predict(X_test))
-fpr, tpr, thresholds = roc_curve(y_test, logreg.predict_proba(X_test)[:,1])
+logit_roc_auc = roc_auc_score(y_test_org, logreg.predict(X_test_org))
+fpr, tpr, thresholds = roc_curve(y_test_org, logreg.predict_proba(X_test_org)[:,1])
 plt.figure()
 plt.plot(fpr, tpr, label='Logistic Regression (area = %0.2f)' % logit_roc_auc)
 plt.plot([0, 1], [0, 1],'r--')
