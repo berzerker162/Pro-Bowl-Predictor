@@ -6,9 +6,9 @@ from bs4 import BeautifulSoup
 
 
 #update for all years available
-range = np.arange(2000,2020,1) #for all years in question
+range = np.arange(1987,2020,1) #for all years in question
 
-outfile = open("probowlers_new.csv","w",newline='')
+outfile = open("data/probowlers.csv","w",newline='')
 writer = csv.writer(outfile)
 
 # Make a GET request to fetch the raw HTML content
